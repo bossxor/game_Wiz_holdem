@@ -10,7 +10,7 @@
 <script src="vendor/react.min.js"></script>
 <script src="vendor/react-dom.min.js"></script>
 <script src="vendor/babel.min.js"></script>
-<script>if('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js');</script>
+<script>if('serviceWorker' in navigator && location.protocol.startsWith('http') && !window.Capacitor) navigator.serviceWorker.register('sw.js');</script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0;}
   body{background:#080f12;font-family:Georgia,serif;}
