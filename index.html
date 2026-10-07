@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>마법사의 홀덤</title>
+<meta name="theme-color" content="#080f12"/>
+<link rel="manifest" href="manifest.json"/>
+<link rel="icon" href="icon.svg"/>
+<script src="vendor/react.min.js"></script>
+<script src="vendor/react-dom.min.js"></script>
+<script src="vendor/babel.min.js"></script>
+<script>if('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js');</script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#080f12;font-family:Georgia,serif;}
+  input[type=range]{accent-color:#f0c060;}
+  ::-webkit-scrollbar{width:4px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:#444;border-radius:2px;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+const SUITS = ['♠','♥','♦','♣'];
+const VALUES = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
+const VAL = Object.fromEntries(VALUES.map((v,i) => [v, i+2]));
+const isRed = s => s==='♥' || s==='♦';
+const SB=10, BB=20, START=1000;
+
+function mkDeck() {
+  const d = SUITS.flatMap(s => VALUES.map(v => ({s,v})));
+  for(let i=d.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[d[i],d[j]]=[d[j],d[i]];}
+  return d;
+}
+
+function score5(cs) {
+  const vs = cs.map(c => VAL[c.v]).sort((a,b)=>b-a);
+  const fl = cs.every(c => c.s===cs[0].s);
+  const uq = [...new Set(vs)];
+  const str = uq.length===5 && vs[0]-vs[4]===4 ? vs[0]
+    : JSON.stringify(vs)==='[14,5,4,3,2]' ? 5 : 0;
+  const cnt = {};
+  for(const v of vs) cnt[v]=(cnt[v]||0)+1;
+  const g = Object.entries(cnt).map(([v,c])=>({v:+v,c})).sort((a,b)=>b.c-a.c||b.v-a.v);
+  const k = g.map(x=>x.v);
+  if(fl&&str===14) return {r:9,n:'로열 플러시',k};
+  if(fl&&str)      return {r:8,n:'스트레이트 플러시',k:[str]};
+  if(g[0].c===4)   return {r:7,n:'포카드',k};
+  if(g[0].c===3&&g[1]?.c===2) return {r:6,n:'풀 하우스',k};
+  if(fl)           return {r:5,n:'플러시',k:vs};
+  if(str)          return {r:4,n:'스트레이트',k:[str]};
+  if(g[0].c===3)   return {r:3,n:'트리플',k};
+  if(g[0].c===2&&g[1]?.c===2) return {r:2,n:'투 페어',k};
+  if(g[0].c===2)   return {r:1,n:'원 페어',k};
+  return {r:0,n:'하이 카드',k:vs};
+}
+
+function cmpK(a,b){for(let i=0;i<Math.min(a.length,b.length);i++)if(a[i]!==b[i])return a[i]-b[i];return 0;}
+
+function bestHand(hole, comm) {
+  const all = [...hole,...comm];
+  if(all.length<5) return null;
+  let best = null;
+  const n = all.length;
+  for(let a=0;a<n-4;a++) for(let b=a+1;b<n-3;b++) for(let c=b+1;c<n-2;c++)
+    for(let d=c+1;d<n-1;d++) for(let e=d+1;e<n;e++){
+      const sc = score5([all[a],all[b],all[c],all[d],all[e]]);
+      if(!best||sc.r>best.r||(sc.r===best.r&&cmpK(sc.k,best.k)>0)) best=sc;
+    }
+  return best;
+}
+
+function handStrength(hole, comm) {
+  if(!comm||!comm.length){
+    const vs = hole.map(c=>VAL[c.v]);
+    return Math.min(1,(vs[0]+vs[1])/28+(hole[0].v===hole[1].v?0.3:0)+(hole[0].s===hole[1].s?0.1:0));
+  }
+  const h = bestHand(hole,comm);
+  return h ? h.r/9 : 0;
+}
+
+function bettingDone(players, curBet, acted) {
+  const active = players.filter(p=>!p.folded);
+  if(active.length<=1) return true;
+  const canAct = active.filter(p=>p.chips>0);
+  if(!canAct.length) return true;
+  return canAct.every(p=>acted[p.id]) && active.every(p=>p.rBet===curBet||p.chips===0);
+}
+
+function doShowdown(st) {
+  let pot = st.pot;
+  let players = st.players.map(p => {pot+=p.rBet;return{...p,rBet:0};});
+  const active = players.filter(p=>!p.folded);
+  if(active.length===1){
+    const w = active[0];
+    players = players.map(p=>p.id===w.id?{...p,chips:p.chips+pot}:p);
+    return{...st,players,pot:0,phase:'showdown',result:{winners:[w.id],hands:{}},
+      log:[`🏆 ${w.name} 승리! +${pot}칩`,...st.log.slice(0,9)]};
+  }
+  const hands = {};
+  for(const p of active) hands[p.id]=bestHand(p.hand,st.community);
+  let top = null;
+  for(const p of active){const h=hands[p.id];if(!top||h.r>top.r||(h.r===top.r&&cmpK(h.k,top.k)>0))top=h;}
+  const winners = active.filter(p=>{const h=hands[p.id];return h.r===top.r&&cmpK(h.k,top.k)===0;});
+  const share = Math.floor(pot/winners.length);
+  players = players.map(p=>winners.find(w=>w.id===p.id)?{...p,chips:p.chips+share}:p);
+  const handN = {};
+  for(const p of active) handN[p.id]=hands[p.id]?.n||'?';
+  const wMsg = winners.map(w=>`${w.name}(${handN[w.id]})`).join(', ');
+  return{...st,players,pot:0,phase:'showdown',result:{winners:winners.map(w=>w.id),hands:handN},
+    log:[`🏆 ${wMsg} +${share}칩`,...st.log.slice(0,9)]};
+}
+
+function advPhase(st) {
+  let pot = st.pot;
+  let players = st.players.map(p=>{pot+=p.rBet;return{...p,rBet:0};});
+  const nxtPhase = {preflop:'flop',flop:'turn',turn:'river',river:'showdown'}[st.phase];
+  let deck=[...st.deck], comm=[...st.community];
+  if(nxtPhase==='flop') comm=[...comm,deck.shift(),deck.shift(),deck.shift()];
+  else if(nxtPhase==='turn'||nxtPhase==='river') comm=[...comm,deck.shift()];
+  if(nxtPhase==='showdown') return doShowdown({...st,players,pot,community:comm,deck});
+  const canAct = players.filter(p=>!p.folded&&p.chips>0);
+  if(canAct.length<=1){
+    let c=[...comm],d=[...deck];
+    while(c.length<5) c.push(d.shift());
+    return doShowdown({...st,players,pot,community:c,deck:d,phase:nxtPhase});
+  }
+  let toAct = (st.dealer+1)%3, tries=0;
+  while(tries<3&&(players[toAct].folded||players[toAct].chips===0)){toAct=(toAct+1)%3;tries++;}
+  return{...st,players,pot,community:comm,deck,phase:nxtPhase,toAct,curBet:0,lastRaiser:-1,acted:{},
+    log:[`─── ${nxtPhase.toUpperCase()} ───`,...st.log.slice(0,9)]};
+}
+
+function applyAction(st, pid, action, amount=0) {
+  let players=[...st.players], curBet=st.curBet, lastRaiser=st.lastRaiser;
+  let acted = {...st.acted};
+  const pi = players.findIndex(p=>p.id===pid);
+  let p = {...players[pi]};
+  let msg = '';
+  const toCall = curBet - p.rBet;
+  if(action==='fold'){p.folded=true;msg=`${p.name} 폴드`;}
+  else if(action==='check'){msg=`${p.name} 체크`;}
+  else if(action==='call'){const a=Math.min(toCall,p.chips);p.chips-=a;p.rBet+=a;msg=`${p.name} 콜 (${a})`;}
+  else if(action==='raise'){const tot=Math.min(toCall+amount,p.chips);p.chips-=tot;p.rBet+=tot;curBet=p.rBet;lastRaiser=pid;acted={};acted[pid]=true;msg=`${p.name} 레이즈 → ${curBet}`;}
+  else if(action==='allin'){const a=p.chips;p.rBet+=a;p.chips=0;if(p.rBet>curBet){curBet=p.rBet;lastRaiser=pid;acted={};acted[pid]=true;}msg=`${p.name} 올인! (${a})`;}
+  acted[pid]=true;
+  players[pi]=p;
+  const nst={...st,players,curBet,lastRaiser,acted,log:[msg,...st.log.slice(0,9)]};
+  if(players.filter(p=>!p.folded).length<=1) return doShowdown(nst);
+  if(bettingDone(players,curBet,acted)) return advPhase(nst);
+  let nxt=(pi+1)%3, t2=0;
+  while(t2<3&&(players[nxt].folded||players[nxt].chips===0)){nxt=(nxt+1)%3;t2++;}
+  return{...nst,toAct:nxt};
+}
+
+function aiDecide(p, st) {
+  const s = handStrength(p.hand, st.community);
+  const toCall = st.curBet-p.rBet, canChk=toCall===0, r=Math.random(), ag=p.ag;
+  if(canChk){if(s>0.55&&r<ag)return{action:'raise',amount:Math.max(BB,st.curBet)*2};return{action:'check'};}
+  if(s<0.2&&r<0.65)return{action:'fold'};
+  if(s>0.65&&r<ag)return{action:'raise',amount:Math.max(BB,toCall)};
+  if(toCall>=p.chips)return{action:'allin'};
+  return{action:'call'};
+}
+
+function mkPlayers(){
+  return[
+    {id:0,name:'⚔️ 나',chips:START,hand:[],rBet:0,folded:false,ai:false},
+    {id:1,name:'🧙 아르카나',chips:START,hand:[],rBet:0,folded:false,ai:true,ag:0.35},
+    {id:2,name:'🧝 엘리라',chips:START,hand:[],rBet:0,folded:false,ai:true,ag:0.55},
+  ];
+}
+
+function dealHand(prev) {
+  const deck=mkDeck(); let di=0;
+  const dealer=(prev.dealer+1)%3, sb=(dealer+1)%3, bb=(dealer+2)%3;
+  let players=prev.players.map(p=>p.chips<=0?{...p,hand:[],rBet:0,folded:true}:{...p,hand:[deck[di++],deck[di++]],rBet:0,folded:false});
+  const sbA=Math.min(SB,players[sb].chips), bbA=Math.min(BB,players[bb].chips);
+  players=players.map((p,i)=>i===sb?{...p,chips:p.chips-sbA,rBet:sbA}:i===bb?{...p,chips:p.chips-bbA,rBet:bbA}:p);
+  return{...prev,deck:deck.slice(di),players,community:[],pot:sbA+bbA,phase:'preflop',dealer,
+    toAct:(bb+1)%3,curBet:bbA,lastRaiser:bb,acted:{},result:null,
+    log:[`🃏 새 핸드! 딜러: ${players[dealer].name} | SB:${sbA} BB:${bbA}`,...(prev.log||[]).slice(0,9)]};
+}
+
+function CardUI({card, hidden=false}) {
+  if(!card) return null;
+  const s = {width:46,height:66,borderRadius:7,display:'flex',flexDirection:'column',
+    alignItems:'center',justifyContent:'center',fontWeight:'bold',
+    boxShadow:'0 3px 8px rgba(0,0,0,0.4)',gap:1,flexShrink:0,fontSize:14};
+  if(hidden) return <div style={{...s,background:'linear-gradient(135deg,#3d0060,#700030)',border:'2px solid #9966bb',fontSize:24}}>🂠</div>;
+  return(
+    <div style={{...s,background:'#fff8f0',border:'2px solid #ccc',color:isRed(card.s)?'#c0392b':'#1a1a2e',fontSize:card.v==='10'?11:14}}>
+      <span style={{lineHeight:1}}>{card.v}</span>
+      <span style={{fontSize:20,lineHeight:1}}>{card.s}</span>
+    </div>
+  );
+}
+
+function Btn({children, onClick, color='#2a4a2a', disabled=false, full=false, sm=false}) {
+  return(
+    <button onClick={onClick} disabled={disabled}
+      style={{background:disabled?'#2a2a2a':color,color:disabled?'#555':'#fff',border:'none',
+        borderRadius:7,padding:sm?'7px 11px':'10px 16px',cursor:disabled?'default':'pointer',
+        fontSize:sm?12:14,fontFamily:'Georgia,serif',width:full?'100%':'auto',fontWeight:'bold',
+        opacity:disabled?0.5:1}}>
+      {children}
+    </button>
+  );
+}
+
+const initState = {
+  phase:'idle', players:mkPlayers(), community:[], pot:0, dealer:2, toAct:-1,
+  curBet:0, lastRaiser:-1, acted:{}, deck:[], result:null,
+  log:['🏰 마법사의 홀덤에 오신 것을 환영합니다!','• 블라인드: SB 10 / BB 20','• 시작 칩: 1,000','• 게임 시작 버튼을 누르세요!']
+};
+
+function App() {
+  const [st, setSt] = useState(initState);
+  const [raiseAmt, setRaiseAmt] = useState(BB*2);
+  const aiRef = useRef(null);
+
+  useEffect(() => {
+    if(st.phase==='idle'||st.phase==='showdown') return;
+    const p = st.players[st.toAct];
+    if(!p||!p.ai||p.folded) return;
+    clearTimeout(aiRef.current);
+    aiRef.current = setTimeout(() => {
+      setSt(prev => {
+        const cur = prev.players[prev.toAct];
+        if(!cur||!cur.ai||cur.folded||prev.phase==='showdown'||prev.phase==='idle') return prev;
+        const {action, amount=0} = aiDecide(cur, prev);
+        return applyAction(prev, cur.id, action, amount);
+      });
+    }, 700+Math.random()*700);
+    return () => clearTimeout(aiRef.current);
+  }, [st.toAct, st.phase]);
+
+  const deal = () => setSt(prev => dealHand(prev));
+  const act = (action, amount=0) => { if(st.toAct!==0) return; setSt(prev => applyAction(prev,0,action,amount)); };
+
+  const me = st.players[0];
+  const toCall = Math.max(0, st.curBet-(me?.rBet||0));
+  const isMyTurn = st.phase!=='idle'&&st.phase!=='showdown'&&st.toAct===0&&!me?.folded;
+  const activePlayers = st.players.filter(p=>p.chips>0).length;
+  const gameOver = activePlayers<=1;
+  const myBest = me?.hand?.length&&st.phase!=='idle' ? bestHand(me.hand,st.community) : null;
+  const maxRaise = me?.chips||BB*2;
+  const minRaise = Math.min(Math.max(BB*2,toCall+BB),maxRaise);
+  const safeRaise = Math.max(minRaise,Math.min(raiseAmt,maxRaise));
+  const phaseLabel = {idle:'',preflop:'프리플랍',flop:'플랍',turn:'턴',river:'리버',showdown:'쇼다운'};
+
+  return(
+    <div style={{background:'linear-gradient(160deg,#080f08,#0d1520,#080f12)',minHeight:'100vh',
+      color:'#e8dcc8',fontFamily:'Georgia,serif',padding:'12px 10px',maxWidth:480,margin:'0 auto'}}>
+
+      <div style={{textAlign:'center',marginBottom:12}}>
+        <div style={{fontSize:22,color:'#f0c060',textShadow:'0 0 20px rgba(240,192,96,0.3)',letterSpacing:1}}>
+          🏰 마법사의 홀덤 🏰
+        </div>
+        {st.phase!=='idle'&&<div style={{fontSize:11,color:'#aaa',marginTop:2,letterSpacing:2}}>{(phaseLabel[st.phase]||'').toUpperCase()}</div>}
+      </div>
+
+      {st.players.filter(p=>p.ai).map(p => {
+        const thinking = st.toAct===p.id&&!p.folded&&st.phase!=='showdown'&&st.phase!=='idle';
+        const showCards = st.phase==='showdown'&&!p.folded;
+        const isWinner = st.result?.winners?.includes(p.id);
+        return(
+          <div key={p.id} style={{background:isWinner?'rgba(240,192,96,0.12)':'rgba(255,255,255,0.04)',
+            borderRadius:10,padding:'9px 12px',marginBottom:7,
+            border:`1px solid ${thinking?'#f0c060':isWinner?'rgba(240,192,96,0.3)':'rgba(255,255,255,0.08)'}`,
+            opacity:p.folded&&!st.result?0.45:1}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+              <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                <span style={{fontWeight:'bold',fontSize:14}}>{p.name}</span>
+                {p.id===st.dealer&&st.phase!=='idle'&&<span style={{fontSize:10,background:'#444',padding:'1px 5px',borderRadius:3,color:'#ccc'}}>D</span>}
+              </div>
+              <div style={{display:'flex',gap:7,alignItems:'center'}}>
+                {isWinner&&<span style={{color:'#f0c060',fontSize:12}}>🏆 WIN</span>}
+                {p.folded&&<span style={{color:'#ff6666',fontSize:10,background:'rgba(255,0,0,0.13)',padding:'1px 6px',borderRadius:3}}>FOLD</span>}
+                {thinking&&<span style={{color:'#ffdd66',fontSize:11}}>💭...</span>}
+                {p.rBet>0&&<span style={{color:'#88bbff',fontSize:11}}>베팅:{p.rBet}</span>}
+                <span style={{color:'#f0c060',fontSize:12}}>💰{p.chips}</span>
+              </div>
+            </div>
+            <div style={{display:'flex',gap:5,alignItems:'center'}}>
+              {p.hand.map((c,i)=><CardUI key={i} card={c} hidden={!showCards}/>)}
+              {showCards&&st.result?.hands?.[p.id]&&<span style={{marginLeft:8,color:'#88ffaa',fontSize:12,fontStyle:'italic'}}>{st.result.hands[p.id]}</span>}
+            </div>
+          </div>
+        );
+      })}
+
+      <div style={{background:'radial-gradient(ellipse at center,#1e6630,#0d3318)',
+        borderRadius:16,padding:'12px 10px',margin:'8px 0',border:'2px solid rgba(45,110,58,0.3)',textAlign:'center'}}>
+        <div style={{color:'#77bb77',fontSize:10,marginBottom:7,letterSpacing:2}}>COMMUNITY CARDS</div>
+        <div style={{display:'flex',justifyContent:'center',gap:5,marginBottom:10}}>
+          {[0,1,2,3,4].map(i=>st.community[i]
+            ?<CardUI key={i} card={st.community[i]}/>
+            :<div key={i} style={{width:46,height:66,borderRadius:7,border:'1px dashed rgba(45,110,58,0.3)',background:'rgba(0,60,0,0.2)',flexShrink:0}}/>
+          )}
+        </div>
+        <div style={{display:'flex',justifyContent:'center',gap:24,alignItems:'center'}}>
+          <div style={{color:'#f0c060',fontWeight:'bold',fontSize:17}}>🏆 팟: {st.pot}</div>
+          {st.curBet>0&&<div style={{color:'#99ccff',fontSize:12}}>현재 베팅: {st.curBet}</div>}
+        </div>
+      </div>
+
+      <div style={{background:isMyTurn?'rgba(240,192,96,0.08)':'rgba(255,255,255,0.05)',
+        borderRadius:10,padding:'9px 12px',marginBottom:9,
+        border:`1px solid ${isMyTurn?'#f0c060':'rgba(255,255,255,0.08)'}`}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+          <div style={{display:'flex',gap:6,alignItems:'center'}}>
+            <span style={{fontWeight:'bold',fontSize:14}}>{me?.name}</span>
+            {st.dealer===0&&st.phase!=='idle'&&<span style={{fontSize:10,background:'#444',padding:'1px 5px',borderRadius:3,color:'#ccc'}}>D</span>}
+          </div>
+          <div style={{display:'flex',gap:7,alignItems:'center'}}>
+            {st.result?.winners?.includes(0)&&<span style={{color:'#f0c060',fontSize:12}}>🏆 WIN</span>}
+            {me?.folded&&<span style={{color:'#ff6666',fontSize:10,background:'rgba(255,0,0,0.13)',padding:'1px 6px',borderRadius:3}}>FOLD</span>}
+            {isMyTurn&&<span style={{color:'#ffff88',fontSize:11,fontStyle:'italic'}}>⬅ 내 차례</span>}
+            {me?.rBet>0&&<span style={{color:'#88bbff',fontSize:11}}>베팅:{me.rBet}</span>}
+            <span style={{color:'#f0c060',fontSize:12}}>💰{me?.chips}</span>
+          </div>
+        </div>
+        <div style={{display:'flex',gap:5,alignItems:'center'}}>
+          {me?.hand.map((c,i)=><CardUI key={i} card={c}/>)}
+          {myBest&&<div style={{marginLeft:8}}>
+            <div style={{color:'#aaccff',fontSize:12,fontStyle:'italic'}}>{myBest.n}</div>
+          </div>}
+        </div>
+      </div>
+
+      {isMyTurn&&!me.folded&&(
+        <div style={{marginBottom:9}}>
+          <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:7}}>
+            <Btn onClick={()=>act('fold')} color='#7a1a1a' sm>🚫 폴드</Btn>
+            {toCall===0
+              ?<Btn onClick={()=>act('check')} color='#1a4a7a' sm>✅ 체크</Btn>
+              :<Btn onClick={()=>act('call')} color='#1a6a22' sm>📞 콜 ({toCall})</Btn>}
+            {me.chips>toCall&&<Btn onClick={()=>act('raise',safeRaise)} color='#7a5500' disabled={me.chips<=toCall} sm>⬆️ 레이즈 ({safeRaise})</Btn>}
+            <Btn onClick={()=>act('allin')} color='#660077' sm>💥 올인 ({me.chips})</Btn>
+          </div>
+          {me.chips>toCall&&maxRaise>minRaise&&(
+            <div style={{display:'flex',alignItems:'center',gap:8,padding:'6px 10px',
+              background:'rgba(0,0,0,0.3)',borderRadius:7,border:'1px solid rgba(255,255,255,0.07)'}}>
+              <span style={{fontSize:11,color:'#888',minWidth:36}}>레이즈</span>
+              <input type="range" min={minRaise} max={maxRaise} step={BB}
+                value={safeRaise} onChange={e=>setRaiseAmt(+e.target.value)}
+                style={{flex:1,height:4}}/>
+              <span style={{minWidth:44,color:'#f0c060',fontSize:12,textAlign:'right'}}>{safeRaise}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {(st.phase==='idle'||st.phase==='showdown')&&!gameOver&&(
+        <Btn onClick={deal} color='#1a4a1a' full>
+          {st.phase==='idle'?'🃏 게임 시작':'🃏 다음 핸드'}
+        </Btn>
+      )}
+
+      {gameOver&&st.phase==='showdown'&&(
+        <div style={{textAlign:'center',padding:'16px 8px',background:'rgba(0,0,0,0.4)',
+          borderRadius:12,border:'1px solid rgba(240,192,96,0.27)',marginBottom:8}}>
+          <div style={{fontSize:20,color:'#f0c060',marginBottom:6,textShadow:'0 0 15px rgba(240,192,96,0.5)'}}>
+            {me?.chips>0?'🏆 마법 결투 승리!':'💀 패배..'}
+          </div>
+          <div style={{fontSize:13,color:'#aaa',marginBottom:12}}>
+            {me?.chips>0?'모든 마법사를 물리쳤습니다!':'모든 칩을 잃었습니다.'}
+          </div>
+          <Btn onClick={()=>setSt({...initState,players:mkPlayers()})} color='#4a2a00' full>🔄 새 게임</Btn>
+        </div>
+      )}
+
+      <div style={{background:'rgba(0,0,0,0.4)',borderRadius:8,padding:'8px 10px',marginTop:8,
+        maxHeight:120,overflowY:'auto',border:'1px solid rgba(255,255,255,0.06)'}}>
+        <div style={{fontSize:9,color:'#555',marginBottom:4,letterSpacing:2}}>GAME LOG</div>
+        {st.log.map((l,i)=>(
+          <div key={i} style={{fontSize:11,color:i===0?'#e0df80':'#667788',marginBottom:2,lineHeight:1.5}}>{l}</div>
+        ))}
+      </div>
+
+      <div style={{marginTop:8,padding:'8px 10px',background:'rgba(255,255,255,0.02)',
+        borderRadius:7,border:'1px solid rgba(255,255,255,0.04)'}}>
+        <div style={{fontSize:9,color:'#555',letterSpacing:2,marginBottom:4}}>핸드 순위</div>
+        <div style={{fontSize:10,color:'#556677',lineHeight:1.8}}>
+          로열 플러시 &gt; 스트레이트 플러시 &gt; 포카드 &gt; 풀 하우스 &gt; 플러시 &gt; 스트레이트 &gt; 트리플 &gt; 투 페어 &gt; 원 페어 &gt; 하이 카드
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
