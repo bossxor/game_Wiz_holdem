@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">마법사의 홀덤</string>
+    <string name="title_activity_main">마법사의 홀덤</string>
+    <string name="package_name">com.wiz.holdem</string>
+    <string name="custom_url_scheme">com.wiz.holdem</string>
+</resources>
