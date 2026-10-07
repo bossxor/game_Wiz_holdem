@@ -6,7 +6,8 @@
 <title>마법사의 홀덤</title>
 <meta name="theme-color" content="#080f12"/>
 <link rel="manifest" href="manifest.json"/>
-<link rel="icon" href="icon.svg"/>
+<link rel="icon" href="icon.png"/>
+<link rel="apple-touch-icon" href="icon.png"/>
 <script src="vendor/react.min.js"></script>
 <script src="vendor/react-dom.min.js"></script>
 <script src="vendor/babel.min.js"></script>
@@ -29,7 +30,8 @@ const SUITS = ['♠','♥','♦','♣'];
 const VALUES = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
 const VAL = Object.fromEntries(VALUES.map((v,i) => [v, i+2]));
 const isRed = s => s==='♥' || s==='♦';
-const SB=10, BB=20, START=1000;
+const live = p => !p.folded && p.chips>0;
+const nextSeat = (ps,i,ok) => {for(let k=1;k<=ps.length;k++){const j=(i+k)%ps.length;if(ok(ps[j]))return j;}return -1;};
 
 function mkDeck() {
   const d = SUITS.flatMap(s => VALUES.map(v => ({s,v})));
@@ -129,9 +131,7 @@ function advPhase(st) {
     while(c.length<5) c.push(d.shift());
     return doShowdown({...st,players,pot,community:c,deck:d,phase:nxtPhase});
   }
-  let toAct = (st.dealer+1)%3, tries=0;
-  while(tries<3&&(players[toAct].folded||players[toAct].chips===0)){toAct=(toAct+1)%3;tries++;}
-  return{...st,players,pot,community:comm,deck,phase:nxtPhase,toAct,curBet:0,lastRaiser:-1,acted:{},
+  return{...st,players,pot,community:comm,deck,phase:nxtPhase,toAct:nextSeat(players,st.dealer,live),curBet:0,lastRaiser:-1,acted:{},
     log:[`─── ${nxtPhase.toUpperCase()} ───`,...st.log.slice(0,9)]};
 }
 
@@ -152,50 +152,59 @@ function applyAction(st, pid, action, amount=0) {
   const nst={...st,players,curBet,lastRaiser,acted,log:[msg,...st.log.slice(0,9)]};
   if(players.filter(p=>!p.folded).length<=1) return doShowdown(nst);
   if(bettingDone(players,curBet,acted)) return advPhase(nst);
-  let nxt=(pi+1)%3, t2=0;
-  while(t2<3&&(players[nxt].folded||players[nxt].chips===0)){nxt=(nxt+1)%3;t2++;}
-  return{...nst,toAct:nxt};
+  return{...nst,toAct:nextSeat(players,pi,live)};
 }
 
 function aiDecide(p, st) {
   const s = handStrength(p.hand, st.community);
   const toCall = st.curBet-p.rBet, canChk=toCall===0, r=Math.random(), ag=p.ag;
-  if(canChk){if(s>0.55&&r<ag)return{action:'raise',amount:Math.max(BB,st.curBet)*2};return{action:'check'};}
+  if(canChk){if(s>0.55&&r<ag)return{action:'raise',amount:Math.max(st.bb,st.curBet)*2};return{action:'check'};}
   if(s<0.2&&r<0.65)return{action:'fold'};
-  if(s>0.65&&r<ag)return{action:'raise',amount:Math.max(BB,toCall)};
+  if(s>0.65&&r<ag)return{action:'raise',amount:Math.max(st.bb,toCall)};
   if(toCall>=p.chips)return{action:'allin'};
   return{action:'call'};
 }
 
-function mkPlayers(){
-  return[
-    {id:0,name:'⚔️ 나',chips:START,hand:[],rBet:0,folded:false,ai:false},
-    {id:1,name:'🧙 아르카나',chips:START,hand:[],rBet:0,folded:false,ai:true,ag:0.35},
-    {id:2,name:'🧝 엘리라',chips:START,hand:[],rBet:0,folded:false,ai:true,ag:0.55},
+const AI_LIST = [['🧙 아르카나',0.35],['🧝 엘리라',0.55],['🧛 드라큘',0.45],['🧞 지니',0.65],['🐉 드라코',0.75]];
+const DIFF = {easy:0.6, normal:1, hard:1.4};
+const BLINDS = [[5,10],[10,20],[25,50],[50,100]];
+const QUICK = {players:3, chips:1000, blinds:1, diff:'normal'};
+
+function initGame(cfg, name) {
+  const [sb,bb] = BLINDS[cfg.blinds];
+  const players = [
+    {id:0,name:'⚔️ '+name,chips:cfg.chips,hand:[],rBet:0,folded:false,ai:false},
+    ...AI_LIST.slice(0,cfg.players-1).map(([n,ag],i)=>({id:i+1,name:n,chips:cfg.chips,hand:[],rBet:0,folded:false,ai:true,ag:Math.min(0.95,ag*DIFF[cfg.diff])})),
   ];
+  return dealHand({phase:'idle',players,sb,bb,community:[],pot:0,dealer:players.length-1,toAct:-1,
+    curBet:0,lastRaiser:-1,acted:{},deck:[],result:null,
+    log:['🏰 마법사의 홀덤에 오신 것을 환영합니다!',`• ${players.length}인 | 블라인드 ${sb}/${bb} | 시작 칩 ${cfg.chips.toLocaleString()}`]});
 }
 
 function dealHand(prev) {
   const deck=mkDeck(); let di=0;
-  const dealer=(prev.dealer+1)%3, sb=(dealer+1)%3, bb=(dealer+2)%3;
+  const alive=p=>p.chips>0;
+  const dealer=nextSeat(prev.players,prev.dealer,alive);
+  const headsUp=prev.players.filter(alive).length===2;
+  const sb=headsUp?dealer:nextSeat(prev.players,dealer,alive), bb=nextSeat(prev.players,sb,alive);
   let players=prev.players.map(p=>p.chips<=0?{...p,hand:[],rBet:0,folded:true}:{...p,hand:[deck[di++],deck[di++]],rBet:0,folded:false});
-  const sbA=Math.min(SB,players[sb].chips), bbA=Math.min(BB,players[bb].chips);
+  const sbA=Math.min(prev.sb,players[sb].chips), bbA=Math.min(prev.bb,players[bb].chips);
   players=players.map((p,i)=>i===sb?{...p,chips:p.chips-sbA,rBet:sbA}:i===bb?{...p,chips:p.chips-bbA,rBet:bbA}:p);
-  return{...prev,deck:deck.slice(di),players,community:[],pot:sbA+bbA,phase:'preflop',dealer,
-    toAct:(bb+1)%3,curBet:bbA,lastRaiser:bb,acted:{},result:null,
+  return{...prev,deck:deck.slice(di),players,community:[],pot:0,phase:'preflop',dealer,
+    toAct:nextSeat(players,bb,live),curBet:bbA,lastRaiser:bb,acted:{},result:null,
     log:[`🃏 새 핸드! 딜러: ${players[dealer].name} | SB:${sbA} BB:${bbA}`,...(prev.log||[]).slice(0,9)]};
 }
 
-function CardUI({card, hidden=false}) {
+function CardUI({card, hidden=false, sm=false}) {
   if(!card) return null;
-  const s = {width:46,height:66,borderRadius:7,display:'flex',flexDirection:'column',
+  const s = {width:sm?32:46,height:sm?46:66,borderRadius:sm?5:7,display:'flex',flexDirection:'column',
     alignItems:'center',justifyContent:'center',fontWeight:'bold',
     boxShadow:'0 3px 8px rgba(0,0,0,0.4)',gap:1,flexShrink:0,fontSize:14};
-  if(hidden) return <div style={{...s,background:'linear-gradient(135deg,#3d0060,#700030)',border:'2px solid #9966bb',fontSize:24}}>🂠</div>;
+  if(hidden) return <div style={{...s,background:'linear-gradient(135deg,#3d0060,#700030)',border:'2px solid #9966bb',fontSize:sm?16:24}}>🂠</div>;
   return(
-    <div style={{...s,background:'#fff8f0',border:'2px solid #ccc',color:isRed(card.s)?'#c0392b':'#1a1a2e',fontSize:card.v==='10'?11:14}}>
+    <div style={{...s,background:'#fff8f0',border:'2px solid #ccc',color:isRed(card.s)?'#c0392b':'#1a1a2e',fontSize:sm?(card.v==='10'?9:11):(card.v==='10'?11:14)}}>
       <span style={{lineHeight:1}}>{card.v}</span>
-      <span style={{fontSize:20,lineHeight:1}}>{card.s}</span>
+      <span style={{fontSize:sm?14:20,lineHeight:1}}>{card.s}</span>
     </div>
   );
 }
@@ -212,16 +221,104 @@ function Btn({children, onClick, color='#2a4a2a', disabled=false, full=false, sm
   );
 }
 
-const initState = {
-  phase:'idle', players:mkPlayers(), community:[], pot:0, dealer:2, toAct:-1,
-  curBet:0, lastRaiser:-1, acted:{}, deck:[], result:null,
-  log:['🏰 마법사의 홀덤에 오신 것을 환영합니다!','• 블라인드: SB 10 / BB 20','• 시작 칩: 1,000','• 게임 시작 버튼을 누르세요!']
-};
+const SPEED = {slow:[1400,1000], normal:[700,700], fast:[250,250]};
+const WRAP = {background:'linear-gradient(160deg,#080f08,#0d1520,#080f12)',minHeight:'100vh',
+  color:'#e8dcc8',fontFamily:'Georgia,serif',padding:'12px 10px',maxWidth:480,margin:'0 auto'};
+const load = (k,d) => {try{return {...d,...JSON.parse(localStorage.getItem(k))};}catch{return d;}};
+
+function Seg({label, options, value, onChange}) {
+  return(
+    <div style={{marginBottom:16}}>
+      <div style={{fontSize:13,color:'#aaa',marginBottom:6}}>{label}</div>
+      <div style={{display:'flex',gap:6}}>
+        {options.map(([v,t])=>(
+          <button key={v} onClick={()=>onChange(v)}
+            style={{flex:1,padding:'10px 0',borderRadius:8,cursor:'pointer',fontFamily:'Georgia,serif',fontSize:13,fontWeight:'bold',
+              background:v===value?'#f0c060':'rgba(255,255,255,0.06)',color:v===value?'#1a1a1a':'#ccc',
+              border:`1px solid ${v===value?'#f0c060':'rgba(255,255,255,0.1)'}`}}>{t}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Screen({title, onBack, children}) {
+  return(
+    <div style={{...WRAP,display:'flex',flexDirection:'column',justifyContent:'center',padding:'24px 20px'}}>
+      {title&&<div style={{fontSize:20,color:'#f0c060',textAlign:'center',marginBottom:24}}>{title}</div>}
+      {children}
+      {onBack&&<div style={{marginTop:10}}><Btn onClick={onBack} color='#2a2a35' full>← 뒤로</Btn></div>}
+    </div>
+  );
+}
 
 function App() {
-  const [st, setSt] = useState(initState);
-  const [raiseAmt, setRaiseAmt] = useState(BB*2);
+  const [screen, setScreen] = useState('menu');
+  const [settings, setSettings] = useState(() => load('wiz-settings', {name:'나', speed:'normal'}));
+  const [custom, setCustom] = useState(() => load('wiz-custom', {players:4, chips:1000, blinds:1, diff:'normal'}));
+  const [cfg, setCfg] = useState(QUICK);
+  useEffect(() => localStorage.setItem('wiz-settings', JSON.stringify(settings)), [settings]);
+  useEffect(() => localStorage.setItem('wiz-custom', JSON.stringify(custom)), [custom]);
+  const play = c => { setCfg(c); setScreen('game'); };
+  const gap = {display:'flex',flexDirection:'column',gap:10};
+
+  if(screen==='game') return <Game cfg={cfg} settings={settings} onExit={()=>setScreen('menu')}/>;
+
+  if(screen==='start') return(
+    <Screen title='🃏 게임 시작' onBack={()=>setScreen('menu')}>
+      <div style={gap}>
+        <Btn onClick={()=>play(QUICK)} color='#1a5a2a' full>⚡ 빠른 시작<div style={{fontSize:11,fontWeight:'normal',opacity:0.7,marginTop:3}}>3인 · 칩 1,000 · 블라인드 10/20</div></Btn>
+        <Btn onClick={()=>setScreen('custom')} color='#4a2a6a' full>🛠️ 커스텀 게임<div style={{fontSize:11,fontWeight:'normal',opacity:0.7,marginTop:3}}>인원 · 칩 · 블라인드 · 난이도 설정</div></Btn>
+      </div>
+    </Screen>
+  );
+
+  if(screen==='custom') {
+    const set = k => v => setCustom(c=>({...c,[k]:v}));
+    return(
+      <Screen title='🛠️ 커스텀 게임' onBack={()=>setScreen('start')}>
+        <Seg label='인원 (나 포함)' value={custom.players} onChange={set('players')} options={[2,3,4,5,6].map(n=>[n,n+'명'])}/>
+        <Seg label='시작 칩' value={custom.chips} onChange={set('chips')} options={[500,1000,2000,5000].map(n=>[n,n.toLocaleString()])}/>
+        <Seg label='블라인드' value={custom.blinds} onChange={set('blinds')} options={BLINDS.map(([s,b],i)=>[i,`${s}/${b}`])}/>
+        <Seg label='AI 난이도' value={custom.diff} onChange={set('diff')} options={[['easy','쉬움'],['normal','보통'],['hard','어려움']]}/>
+        <Btn onClick={()=>play(custom)} color='#1a5a2a' full>▶ 시작</Btn>
+      </Screen>
+    );
+  }
+
+  if(screen==='settings') return(
+    <Screen title='⚙️ 설정' onBack={()=>setScreen('menu')}>
+      <div style={{marginBottom:16}}>
+        <div style={{fontSize:13,color:'#aaa',marginBottom:6}}>닉네임</div>
+        <input value={settings.name} maxLength={8} onChange={e=>setSettings(s=>({...s,name:e.target.value}))}
+          style={{width:'100%',padding:'10px 12px',borderRadius:8,border:'1px solid rgba(255,255,255,0.15)',
+            background:'rgba(255,255,255,0.06)',color:'#fff',fontSize:15,fontFamily:'Georgia,serif'}}/>
+      </div>
+      <Seg label='AI 속도' value={settings.speed} onChange={v=>setSettings(s=>({...s,speed:v}))} options={[['slow','느림'],['normal','보통'],['fast','빠름']]}/>
+    </Screen>
+  );
+
+  return(
+    <Screen>
+      <div style={{textAlign:'center',marginBottom:40}}>
+        <img src='icon.png' style={{width:120,height:120,marginBottom:16}}/>
+        <div style={{fontSize:28,color:'#f0c060',textShadow:'0 0 20px rgba(240,192,96,0.4)',letterSpacing:1}}>마법사의 홀덤</div>
+        <div style={{fontSize:12,color:'#778',marginTop:6,letterSpacing:3}}>WIZARD'S HOLD'EM</div>
+      </div>
+      <div style={gap}>
+        <Btn onClick={()=>setScreen('start')} color='#1a5a2a' full>🃏 게임 시작</Btn>
+        <Btn onClick={()=>setScreen('settings')} color='#2a3a4a' full>⚙️ 설정</Btn>
+      </div>
+    </Screen>
+  );
+}
+
+function Game({cfg, settings, onExit}) {
+  const [st, setSt] = useState(() => initGame(cfg, settings.name));
+  const [raiseAmt, setRaiseAmt] = useState(st.bb*2);
   const aiRef = useRef(null);
+  const BB = st.bb;
+  const [base, jitter] = SPEED[settings.speed];
 
   useEffect(() => {
     if(st.phase==='idle'||st.phase==='showdown') return;
@@ -235,7 +332,7 @@ function App() {
         const {action, amount=0} = aiDecide(cur, prev);
         return applyAction(prev, cur.id, action, amount);
       });
-    }, 700+Math.random()*700);
+    }, base+Math.random()*jitter);
     return () => clearTimeout(aiRef.current);
   }, [st.toAct, st.phase]);
 
@@ -246,7 +343,9 @@ function App() {
   const toCall = Math.max(0, st.curBet-(me?.rBet||0));
   const isMyTurn = st.phase!=='idle'&&st.phase!=='showdown'&&st.toAct===0&&!me?.folded;
   const activePlayers = st.players.filter(p=>p.chips>0).length;
-  const gameOver = activePlayers<=1;
+  const gameOver = activePlayers<=1 || me.chips<=0;
+  const potTotal = st.pot + st.players.reduce((a,p)=>a+p.rBet,0);
+  const smAI = st.players.length>3;
   const myBest = me?.hand?.length&&st.phase!=='idle' ? bestHand(me.hand,st.community) : null;
   const maxRaise = me?.chips||BB*2;
   const minRaise = Math.min(Math.max(BB*2,toCall+BB),maxRaise);
@@ -254,10 +353,12 @@ function App() {
   const phaseLabel = {idle:'',preflop:'프리플랍',flop:'플랍',turn:'턴',river:'리버',showdown:'쇼다운'};
 
   return(
-    <div style={{background:'linear-gradient(160deg,#080f08,#0d1520,#080f12)',minHeight:'100vh',
-      color:'#e8dcc8',fontFamily:'Georgia,serif',padding:'12px 10px',maxWidth:480,margin:'0 auto'}}>
+    <div style={WRAP}>
 
-      <div style={{textAlign:'center',marginBottom:12}}>
+      <div style={{textAlign:'center',marginBottom:12,position:'relative'}}>
+        <button onClick={()=>(gameOver||confirm('메인 화면으로 나갈까요? 진행 중인 게임은 사라집니다.'))&&onExit()}
+          style={{position:'absolute',left:0,top:0,background:'none',border:'1px solid #444',color:'#aaa',
+            borderRadius:6,padding:'4px 8px',fontSize:12,cursor:'pointer'}}>🏠</button>
         <div style={{fontSize:22,color:'#f0c060',textShadow:'0 0 20px rgba(240,192,96,0.3)',letterSpacing:1}}>
           🏰 마법사의 홀덤 🏰
         </div>
@@ -270,10 +371,10 @@ function App() {
         const isWinner = st.result?.winners?.includes(p.id);
         return(
           <div key={p.id} style={{background:isWinner?'rgba(240,192,96,0.12)':'rgba(255,255,255,0.04)',
-            borderRadius:10,padding:'9px 12px',marginBottom:7,
+            borderRadius:10,padding:smAI?'6px 10px':'9px 12px',marginBottom:smAI?5:7,
             border:`1px solid ${thinking?'#f0c060':isWinner?'rgba(240,192,96,0.3)':'rgba(255,255,255,0.08)'}`,
             opacity:p.folded&&!st.result?0.45:1}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:smAI?4:6}}>
               <div style={{display:'flex',gap:6,alignItems:'center'}}>
                 <span style={{fontWeight:'bold',fontSize:14}}>{p.name}</span>
                 {p.id===st.dealer&&st.phase!=='idle'&&<span style={{fontSize:10,background:'#444',padding:'1px 5px',borderRadius:3,color:'#ccc'}}>D</span>}
@@ -287,7 +388,7 @@ function App() {
               </div>
             </div>
             <div style={{display:'flex',gap:5,alignItems:'center'}}>
-              {p.hand.map((c,i)=><CardUI key={i} card={c} hidden={!showCards}/>)}
+              {p.hand.map((c,i)=><CardUI key={i} card={c} hidden={!showCards} sm={smAI}/>)}
               {showCards&&st.result?.hands?.[p.id]&&<span style={{marginLeft:8,color:'#88ffaa',fontSize:12,fontStyle:'italic'}}>{st.result.hands[p.id]}</span>}
             </div>
           </div>
@@ -304,7 +405,7 @@ function App() {
           )}
         </div>
         <div style={{display:'flex',justifyContent:'center',gap:24,alignItems:'center'}}>
-          <div style={{color:'#f0c060',fontWeight:'bold',fontSize:17}}>🏆 팟: {st.pot}</div>
+          <div style={{color:'#f0c060',fontWeight:'bold',fontSize:17}}>🏆 팟: {potTotal}</div>
           {st.curBet>0&&<div style={{color:'#99ccff',fontSize:12}}>현재 베팅: {st.curBet}</div>}
         </div>
       </div>
@@ -356,11 +457,7 @@ function App() {
         </div>
       )}
 
-      {(st.phase==='idle'||st.phase==='showdown')&&!gameOver&&(
-        <Btn onClick={deal} color='#1a4a1a' full>
-          {st.phase==='idle'?'🃏 게임 시작':'🃏 다음 핸드'}
-        </Btn>
-      )}
+      {st.phase==='showdown'&&!gameOver&&<Btn onClick={deal} color='#1a4a1a' full>🃏 다음 핸드</Btn>}
 
       {gameOver&&st.phase==='showdown'&&(
         <div style={{textAlign:'center',padding:'16px 8px',background:'rgba(0,0,0,0.4)',
@@ -371,7 +468,10 @@ function App() {
           <div style={{fontSize:13,color:'#aaa',marginBottom:12}}>
             {me?.chips>0?'모든 마법사를 물리쳤습니다!':'모든 칩을 잃었습니다.'}
           </div>
-          <Btn onClick={()=>setSt({...initState,players:mkPlayers()})} color='#4a2a00' full>🔄 새 게임</Btn>
+          <div style={{display:'flex',gap:8}}>
+            <Btn onClick={()=>setSt(initGame(cfg,settings.name))} color='#4a2a00' full>🔄 다시 하기</Btn>
+            <Btn onClick={onExit} color='#2a3a4a' full>🏠 메인</Btn>
+          </div>
         </div>
       )}
 
