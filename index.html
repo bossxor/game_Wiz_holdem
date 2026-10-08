@@ -66,12 +66,29 @@
   @keyframes fall{to{transform:translateY(105vh) rotate(360deg);opacity:.8}}
   input[type=range]{accent-color:#ffc93d;}
   ::-webkit-scrollbar{width:0;}
+  .felt{position:relative;overflow:hidden;}
+  .rune{animation:spin 40s linear infinite;pointer-events:none;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .spk{position:absolute;bottom:-20px;color:#ffe58a;opacity:0;animation:rise linear infinite;}
+  @keyframes rise{0%{transform:translateY(0) scale(.6);opacity:0}15%{opacity:.7}100%{transform:translateY(-105vh) scale(1.2) rotate(90deg);opacity:0}}
+  .flash-card{animation:pop .4s cubic-bezier(.2,1.5,.4,1) both,glow 1.1s ease-out;}
+  @keyframes glow{0%{box-shadow:0 0 0 0 #ffd978,0 0 26px 8px #ffd978}100%{box-shadow:0 3px 8px rgba(0,0,0,0.4)}}
+  .flash{position:fixed;inset:0;z-index:6;pointer-events:none;background:radial-gradient(circle,rgba(255,217,120,.55),rgba(150,80,255,.35) 50%,transparent 75%);animation:flashout .9s ease-out both;}
+  @keyframes flashout{0%{opacity:0}20%{opacity:1}100%{opacity:0}}
+  .banner{margin-top:10px;position:relative;animation:pop .5s cubic-bezier(.2,1.5,.4,1) both;}
+  .tip{font-size:13px;color:#ffe58a;text-align:center;margin-bottom:8px;line-height:1.35;}
+  .tip b{font-weight:normal;background:#ffc93d;color:#3a2400;border-radius:8px;padding:1px 8px;margin:0 2px;}
+  .btn.rec{animation:recp 1.3s ease-in-out infinite;}
+  @keyframes recp{0%,100%{filter:brightness(1)}50%{filter:brightness(1.25) drop-shadow(0 0 8px #ffe58a)}}
+  .over{position:fixed;inset:0;z-index:9;display:flex;align-items:center;justify-content:center;padding:24px;
+    background:radial-gradient(ellipse at center,rgba(60,30,130,.94),rgba(10,5,30,.97));animation:fadein .6s 1.5s ease-out both;}
+  @keyframes fadein{from{opacity:0}to{opacity:1}}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useRef } = React;
+const { useState, useEffect, useRef, useMemo } = React;
 
 const SUITS = ['♠','♥','♦','♣'];
 const VALUES = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
@@ -248,10 +265,10 @@ const SPEED = {slow:[1400,1000], normal:[700,700], fast:[250,250]};
 const load = (k,d) => {try{return {...d,...JSON.parse(localStorage.getItem(k))};}catch{return d;}};
 const fmt = n => Number(n).toLocaleString();
 
-function Btn({children, onClick, color='green', disabled=false, full=false, sm=false, grow, style}) {
+function Btn({children, onClick, color='green', disabled=false, full=false, sm=false, grow, style, rec=false}) {
   const [c,d] = PAL[disabled?'gray':color];
   return(
-    <button className="btn" onClick={onClick} disabled={disabled}
+    <button className={"btn"+(rec?" rec":"")} onClick={onClick} disabled={disabled}
       style={{'--c':c,'--d':d,width:full?'100%':'auto',flex:grow,padding:sm?'9px 12px':'11px 14px',
         fontSize:sm?14:19,color:color==='gold'?'#3a2400':'#fff',opacity:disabled?0.5:1,...style}}>
       {children}
@@ -259,7 +276,7 @@ function Btn({children, onClick, color='green', disabled=false, full=false, sm=f
   );
 }
 
-function CardUI({card, hidden=false, size='md'}) {
+function CardUI({card, hidden=false, size='md', magic=false}) {
   if(!card) return null;
   const [w,h,fr,fs] = {sm:[34,48,13,17], md:[48,68,17,26], lg:[62,88,20,34]}[size];
   const base = {width:w,height:h,borderRadius:w/6,flexShrink:0,position:'relative'};
@@ -269,7 +286,7 @@ function CardUI({card, hidden=false, size='md'}) {
   );
   const col = isRed(card.s) ? '#e0405a' : '#2b2350';
   return(
-    <div className="card pop" style={{...base,background:'linear-gradient(160deg,#fff,#f3ecff)',color:col,
+    <div className={"card pop"+(magic?" flash-card":"")} style={{...base,background:'linear-gradient(160deg,#fff,#f3ecff)',color:col,
       border:'1px solid #d9cff0',display:'flex',alignItems:'center',justifyContent:'center'}}>
       <span style={{position:'absolute',top:3,left:w*0.12,fontSize:card.v==='10'?fr*0.85:fr,lineHeight:1}}>{card.v}</span>
       <span style={{fontSize:fs,lineHeight:1,marginTop:h*0.14}}>{card.s}</span>
@@ -315,7 +332,7 @@ function MenuBtn({icon,title,sub,color,onClick}) {
 
 function App() {
   const [screen, setScreen] = useState('menu');
-  const [settings, setSettings] = useState(() => load('wiz-settings', {name:'나', speed:'normal'}));
+  const [settings, setSettings] = useState(() => load('wiz-settings', {name:'나', speed:'normal', hint:true}));
   const [custom, setCustom] = useState(() => load('wiz-custom', {players:4, chips:1000, blinds:1, diff:'normal'}));
   const [cfg, setCfg] = useState(QUICK);
   useEffect(() => localStorage.setItem('wiz-settings', JSON.stringify(settings)), [settings]);
@@ -354,11 +371,13 @@ function App() {
         <input className="field" value={settings.name} maxLength={8} onChange={e=>setSettings(s=>({...s,name:e.target.value}))}/>
       </div>
       <Seg label='AI 속도' value={settings.speed} onChange={v=>setSettings(s=>({...s,speed:v}))} options={[['slow','느림'],['normal','보통'],['fast','빠름']]}/>
+      <Seg label='추천 · 승률 도움말' value={settings.hint} onChange={v=>setSettings(s=>({...s,hint:v}))} options={[[true,'켜기'],[false,'끄기']]}/>
     </Screen>
   );
 
   return(
     <div className="sky">
+      <Sparkles/>
       <span className="float" style={{left:'8%',top:'12%',animationDelay:'0s'}}>♠</span>
       <span className="float red" style={{right:'10%',top:'18%',animationDelay:'1s'}}>♥</span>
       <span className="float red" style={{left:'14%',bottom:'20%',animationDelay:'2s'}}>♦</span>
@@ -378,11 +397,61 @@ function App() {
   );
 }
 
+// 몬테카를로 승률: 내 패 vs 남은 상대(무작위 패)
+function equity(hole, comm, nOpp, sims=300) {
+  const known = new Set([...hole,...comm].map(c=>c.v+c.s));
+  const rest = SUITS.flatMap(s=>VALUES.map(v=>({s,v}))).filter(c=>!known.has(c.v+c.s));
+  const need = 5-comm.length;
+  let win = 0;
+  for(let t=0;t<sims;t++){
+    const k = need+nOpp*2;
+    for(let i=0;i<k;i++){const j=i+Math.floor(Math.random()*(rest.length-i));[rest[i],rest[j]]=[rest[j],rest[i]];}
+    const board = [...comm,...rest.slice(0,need)];
+    const me = bestHand(hole,board);
+    let beat = false, ties = 1;
+    for(let o=0;o<nOpp;o++){
+      const h = bestHand(rest.slice(need+o*2,need+o*2+2),board);
+      const d = h.r-me.r || cmpK(h.k,me.k);
+      if(d>0){beat=true;break;} if(d===0) ties++;
+    }
+    if(!beat) win += 1/ties;
+  }
+  return win/sims;
+}
+
+// 팟 오즈 기반 추천
+function advise(eq, toCall, pot, canRaise) {
+  const need = toCall/(pot+toCall||1);
+  const pct = Math.round(eq*100);
+  if(toCall===0) return eq>0.6&&canRaise ? {act:'raise',why:`승률 ${pct}%`} : {act:'check',why:`승률 ${pct}%`};
+  if(eq<need-0.03) return {act:'fold',why:`승률 ${pct}% < 필요 ${Math.round(need*100)}%`};
+  if(eq>Math.max(0.65,need+0.25)&&canRaise) return {act:'raise',why:`승률 ${pct}%`};
+  return {act:'call',why:`승률 ${pct}% ≥ 필요 ${Math.round(need*100)}%`};
+}
+
+const SPK = Array.from({length:16},(_,i)=>({l:(i*37+11)%100,d:(i*0.9)%7,s:10+(i*7)%14,t:7+(i*3)%6}));
+function Sparkles() {
+  return <div style={{position:'absolute',inset:0,overflow:'hidden',pointerEvents:'none'}}>
+    {SPK.map((b,i)=><span key={i} className="spk" style={{left:b.l+'%',fontSize:b.s,animationDelay:b.d+'s',animationDuration:b.t+'s'}}>{i%3?'✦':'✧'}</span>)}
+  </div>;
+}
+
+function RuneRing({style}) {
+  const ticks = Array.from({length:12},(_,i)=>i*30);
+  return <svg className="rune" viewBox="-100 -100 200 200" style={style}>
+    <g fill="none" stroke="#ffd978" strokeWidth="1.2">
+      <circle r="96"/><circle r="84" strokeDasharray="2 5"/><circle r="62"/>
+      <path d="M0 -62 L53.7 31 L-53.7 31 Z M0 62 L53.7 -31 L-53.7 -31 Z" strokeWidth=".8"/>
+    </g>
+    {ticks.map(a=><circle key={a} r="2.6" cx="0" cy="-90" fill="#ffd978" transform={`rotate(${a})`}/>)}
+  </svg>;
+}
+
 const STEPS = ['preflop','flop','turn','river'];
 const AV_BG = ['#7a4cd6','#e0709a','#3aa5a0','#e0914a','#5b7ae0'];
 
 function Confetti() {
-  const bits = useRef(Array.from({length:22},(_,i)=>({e:['🎉','✨','⭐','🪙'][i%4],l:Math.random()*100,d:Math.random()*0.8,s:16+Math.random()*14}))).current;
+  const bits = useRef(Array.from({length:22},(_,i)=>({e:['✨','⭐','💫','🪙'][i%4],l:Math.random()*100,d:Math.random()*0.8,s:16+Math.random()*14}))).current;
   return <div style={{position:'fixed',inset:0,pointerEvents:'none',overflow:'hidden',zIndex:5}}>
     {bits.map((b,i)=><span key={i} className="fall" style={{left:b.l+'%',animationDelay:b.d+'s',fontSize:b.s}}>{b.e}</span>)}
   </div>;
@@ -428,6 +497,13 @@ function Game({cfg, settings, onExit}) {
   const actor = running ? st.players[st.toAct] : null;
   const iWon = st.phase==='showdown'&&st.result?.winners?.includes(0);
   const step = STEPS.indexOf(st.phase);
+  const nOpp = st.players.filter(p=>p.id!==0&&!p.folded).length;
+  const myKey = me.hand.map(c=>c.v+c.s).join()+'|'+st.community.map(c=>c.v+c.s).join()+'|'+nOpp;
+  const eq = useMemo(() => settings.hint&&me.hand.length&&!me.folded&&running&&nOpp>0 ? equity(me.hand,st.community,nOpp) : null, [myKey, running, me.folded]);
+  const tip = isMyTurn&&eq!=null ? advise(eq,toCall,potTotal,me.chips>toCall) : null;
+  const winners = (st.result?.winners||[]).map(id=>st.players[id]);
+  const iWonGame = gameOver&&me.chips>0;
+  const flashAllin = running&&/올인/.test(st.log[0]||'');
 
   const Bet = ({n}) => n>0 ? <span className="bet"><i/>{fmt(n)}</span> : null;
   const Tag = ({t,bg,fg='#fff'}) => <span className="tag" style={{background:bg,color:fg}}>{t}</span>;
@@ -435,7 +511,9 @@ function Game({cfg, settings, onExit}) {
 
   return(
     <div className="sky">
-    {iWon&&<Confetti key={st.log[0]}/>}
+    <Sparkles/>
+    {(iWon||iWonGame)&&<Confetti key={st.log[0]}/>}
+    {flashAllin&&<div className="flash" key={st.log[0]}/>}
     <div className="col" style={{height:'100dvh',overflow:'hidden'}}>
 
       <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px 4px'}}>
@@ -484,13 +562,19 @@ function Game({cfg, settings, onExit}) {
         <div className="ticker">{st.log[0]}</div>
 
         <div className="rim"><div className="felt">
-          <div style={{display:'flex',justifyContent:'center',gap:6}}>
+          <RuneRing style={{position:'absolute',left:'50%',top:'50%',width:300,height:300,margin:'-150px 0 0 -150px',opacity:st.phase==='showdown'?0.5:0.16,transition:'opacity .6s'}}/>
+          <div style={{display:'flex',justifyContent:'center',gap:6,position:'relative'}}>
             {[0,1,2,3,4].map(i=>st.community[i]
-              ?<CardUI key={i+'-'+st.community[i].s+st.community[i].v} card={st.community[i]}/>
+              ?<CardUI key={i+'-'+st.community[i].s+st.community[i].v} card={st.community[i]} magic/>
               :<div key={i} style={{width:48,height:68,borderRadius:8,border:'2px dashed rgba(255,255,255,0.2)',flexShrink:0}}/>
             )}
           </div>
-          <div className="potpill"><i/>팟 <b>{fmt(potTotal)}</b></div>
+          {st.phase==='showdown'&&winners.length>0
+            ?<div className="banner" key={st.log[0]}>
+              <div className="title" style={{fontSize:24}}>✨ {winners.map(w=>w.name.split(' ').slice(1).join(' ')).join(' · ')} 승! ✨</div>
+              <div style={{fontSize:14,color:'#fff',marginTop:2}}>{st.log[0].replace('🏆 ','').replace(/ 승리!/,'')}</div>
+            </div>
+            :<div className="potpill"><i/>팟 <b>{fmt(potTotal)}</b></div>}
         </div></div>
 
         <div className={'me'+(isMyTurn?' active':'')+(iWon?' win':'')}>
@@ -505,20 +589,21 @@ function Game({cfg, settings, onExit}) {
               {iWon&&<Tag t='🏆 WIN' bg='#ffc93d' fg='#3a2400'/>}
             </div>
             <div style={{fontSize:16,color:'#ffd978',margin:'2px 0'}}>🪙 {fmt(me?.chips)} <Bet n={me?.rBet}/></div>
-            {myBest&&<div style={{fontSize:13,color:'#a9d4ff'}}>{myBest.n}</div>}
+            {myBest&&<div style={{fontSize:13,color:'#a9d4ff'}}>{myBest.r>=4?'✨ ':''}{myBest.n}</div>}
+            {eq!=null&&<div style={{marginTop:4}}>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#d9c9ff'}}><span>🔮 승률</span><b style={{fontWeight:'normal',color:eq>0.5?'#8ff0b8':eq>0.3?'#ffe58a':'#ff9a9a'}}>{Math.round(eq*100)}%</b></div>
+              <div style={{height:7,borderRadius:4,background:'rgba(255,255,255,0.12)',overflow:'hidden',marginTop:2}}>
+                <div style={{width:Math.round(eq*100)+'%',height:'100%',borderRadius:4,transition:'width .5s',background:eq>0.5?'linear-gradient(90deg,#3ccf74,#8ff0b8)':eq>0.3?'linear-gradient(90deg,#ffc93d,#ffe58a)':'linear-gradient(90deg,#f0605f,#ff9a9a)'}}/>
+              </div>
+            </div>}
           </div>
         </div>
 
-        {gameOver&&st.phase==='showdown'&&(
-          <div style={{textAlign:'center',padding:'14px 8px',background:'rgba(0,0,0,0.3)',borderRadius:18}}>
-            <div className="title" style={{fontSize:24}}>{me?.chips>0?'🏆 마법 결투 승리!':'💀 패배..'}</div>
-            <div style={{fontSize:14,color:'#b9a8e6',marginTop:4}}>{me?.chips>0?'모든 마법사를 물리쳤습니다!':'모든 칩을 잃었습니다.'}</div>
-          </div>
-        )}
       </div>
 
       <div className="dock">
         {isMyTurn?(<>
+          {tip&&<div className="tip">💡 추천 <b>{({fold:'폴드',check:'체크',call:'콜',raise:'레이즈'})[tip.act]}</b> · {tip.why}</div>}
           {me.chips>toCall&&maxRaise>minRaise&&(
             <div style={{marginBottom:10}}>
               <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4}}>
@@ -532,12 +617,12 @@ function Game({cfg, settings, onExit}) {
             </div>
           )}
           <div style={{display:'flex',gap:8}}>
-            <Btn grow={0.8} color='red' onClick={()=>act('fold')}>폴드</Btn>
+            <Btn grow={0.8} color='red' rec={tip?.act==='fold'} onClick={()=>act('fold')}>폴드</Btn>
             {toCall===0
-              ?<Btn grow={1} color='blue' onClick={()=>act('check')}>체크</Btn>
-              :<Btn grow={1} color='green' onClick={()=>act('call')}>콜<div className="sub">{fmt(toCall)}</div></Btn>}
+              ?<Btn grow={1} color='blue' rec={tip?.act==='check'} onClick={()=>act('check')}>체크</Btn>
+              :<Btn grow={1} color='green' rec={tip?.act==='call'} onClick={()=>act('call')}>콜<div className="sub">{fmt(toCall)}</div></Btn>}
             {me.chips>toCall
-              ?<Btn grow={1} color='gold' onClick={()=>act('raise',safeRaise)}>레이즈<div className="sub">{fmt(safeRaise)}</div></Btn>
+              ?<Btn grow={1} color='gold' rec={tip?.act==='raise'} onClick={()=>act('raise',safeRaise)}>레이즈<div className="sub">{fmt(safeRaise)}</div></Btn>
               :<Btn grow={1} color='purple' onClick={()=>act('allin')}>올인<div className="sub">{fmt(me.chips)}</div></Btn>}
           </div>
         </>)
@@ -551,6 +636,27 @@ function Game({cfg, settings, onExit}) {
           {actor?.ai?`${actor.name} 생각 중`:me?.folded?'결과를 기다리는 중':'잠시만요'}
         </div>}
       </div>
+
+      {gameOver&&st.phase==='showdown'&&(
+        <div className="over">
+          <div style={{position:'relative',textAlign:'center',width:'100%',maxWidth:380}}>
+            <RuneRing style={{position:'absolute',left:'50%',top:-70,width:300,height:300,marginLeft:-150,opacity:0.35}}/>
+            <div style={{position:'relative',fontSize:64}}>{iWonGame?'👑':'💀'}</div>
+            <div className="title" style={{position:'relative',fontSize:38,margin:'4px 0'}}>{iWonGame?'VICTORY':'DEFEAT'}</div>
+            <div style={{position:'relative',fontSize:17,color:'#e4daff',marginBottom:22}}>{iWonGame?'모든 마법사를 물리쳤습니다!':`${st.players.find(p=>p.chips>0)?.name.split(' ').slice(1).join(' ')||'상대'} 마법사의 승리`}</div>
+            <div style={{position:'relative',background:'rgba(255,255,255,0.08)',borderRadius:18,padding:'10px 14px',marginBottom:20,textAlign:'left'}}>
+              {[...st.players].sort((x,y)=>y.chips-x.chips).map((p,i)=>(
+                <div key={p.id} style={{display:'flex',alignItems:'center',gap:10,padding:'6px 0',fontSize:17,color:i===0?'#ffd978':'#cdbff0'}}>
+                  <span style={{width:24}}>{['🥇','🥈','🥉'][i]||(i+1)}</span><span style={{flex:1}}>{p.name}</span><span>🪙 {fmt(p.chips)}</span>
+                </div>))}
+            </div>
+            <div style={{position:'relative',display:'flex',gap:8}}>
+              <Btn grow={1} color='gold' onClick={()=>setSt(initGame(cfg,settings.name))}>🔄 다시 하기</Btn>
+              <Btn grow={1} color='gray' onClick={onExit}>🏠 메인</Btn>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showLog&&(
         <div onClick={()=>setShowLog(false)} style={{position:'fixed',inset:0,background:'rgba(8,4,24,0.7)',display:'flex',alignItems:'flex-end',zIndex:10}}>
