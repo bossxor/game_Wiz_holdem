@@ -1,20 +1,49 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <g transform="translate(512 530) scale(0.86) translate(-512 -540)">
-    <circle cx="512" cy="620" r="200" fill="#ffe3c8"/>
-    <ellipse cx="420" cy="680" rx="40" ry="26" fill="#ff8fa3" opacity=".85"/>
-    <ellipse cx="604" cy="680" rx="40" ry="26" fill="#ff8fa3" opacity=".85"/>
-    <ellipse cx="445" cy="610" rx="26" ry="34" fill="#2b1a3a"/>
-    <ellipse cx="579" cy="610" rx="26" ry="34" fill="#2b1a3a"/>
-    <circle cx="454" cy="598" r="10" fill="#fff"/>
-    <circle cx="588" cy="598" r="10" fill="#fff"/>
-    <path d="M482 680 Q512 712 542 680" stroke="#2b1a3a" stroke-width="14" fill="none" stroke-linecap="round"/>
-    <path d="M300 470 C410 400 460 270 515 160 C540 115 610 110 655 150 C600 150 575 180 580 225 C595 330 650 410 724 470 Z" fill="#7b4ae2"/>
-    <path d="M296 455 Q512 525 728 455 L740 485 Q512 560 284 485 Z" fill="#f0c060"/>
-    <path d="M520 290 l18 38 42 6 -30 29 7 42 -37 -20 -37 20 7 -42 -30 -29 42 -6 Z" fill="#ffe066"/>
-    <circle cx="655" cy="150" r="22" fill="#ffe066"/>
-    <g transform="rotate(14 740 760)">
-      <rect x="660" y="650" width="160" height="220" rx="22" fill="#fff8f0" stroke="#ddd" stroke-width="6"/>
-      <path d="M740 690 C700 740 680 765 700 790 C715 808 735 800 740 785 C745 800 765 808 780 790 C800 765 780 740 740 690 Z M740 790 L725 830 L755 830 Z" fill="#1a1a2e"/>
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff0b0"/><stop offset=".5" stop-color="#ffc93d"/><stop offset="1" stop-color="#c98a0e"/></linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#e9defa"/></linearGradient>
+    <linearGradient id="hat" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9a68f5"/><stop offset="1" stop-color="#4a24a8"/></linearGradient>
+    <path id="spade" d="M0 -46 C-8 -26 -44 -10 -44 14 C-44 32 -30 42 -16 38 C-10 36 -6 32 -4 28 C-4 40 -8 50 -16 58 H16 C8 50 4 40 4 28 C6 32 10 36 16 38 C30 42 44 32 44 14 C44 -10 8 -26 0 -46 Z"/>
+    <path id="heart" d="M0 44 C-62 0 -46 -44 -22 -44 C-8 -44 0 -34 0 -26 C0 -34 8 -44 22 -44 C46 -44 62 0 0 44 Z"/>
+    <path id="spark" d="M0 -40 C4 -10 10 -4 40 0 C10 4 4 10 0 40 C-4 10 -10 4 -40 0 C-10 -4 -4 -10 0 -40 Z"/>
+  </defs>
+  <!-- magic circle -->
+  <g fill="none" stroke="url(#gold)" transform="translate(512 560)">
+    <circle r="318" stroke-width="7"/>
+    <circle r="296" stroke-width="3" stroke-dasharray="3 14" stroke-linecap="round"/>
+    <g fill="url(#gold)" stroke="none">
+      <path d="M0 -318 l11 11 -11 11 -11 -11z"/><path d="M0 318 l11 -11 -11 -11 -11 11z"/>
+      <path d="M-318 0 l11 -11 11 11 -11 11z"/><path d="M318 0 l-11 -11 -11 11 11 11z"/>
     </g>
+  </g>
+  <!-- cards -->
+  <g transform="translate(404 636) rotate(-17)">
+    <rect x="-118" y="-165" width="236" height="330" rx="28" fill="#000" opacity=".3" transform="translate(8 14)"/>
+    <rect x="-118" y="-165" width="236" height="330" rx="28" fill="url(#card)"/>
+    <rect x="-106" y="-153" width="212" height="306" rx="20" fill="none" stroke="url(#gold)" stroke-width="3"/>
+    <g fill="#2b1a5a"><use href="#spade" transform="translate(0 14) scale(1.9)"/><use href="#spade" transform="translate(-84 -88) scale(.34)"/></g>
+    <path d="M-100 -108 L-84 -148 L-68 -108 M-94 -124 H-74" stroke="#2b1a5a" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g transform="translate(620 636) rotate(17)">
+    <rect x="-118" y="-165" width="236" height="330" rx="28" fill="#000" opacity=".3" transform="translate(8 14)"/>
+    <rect x="-118" y="-165" width="236" height="330" rx="28" fill="url(#card)"/>
+    <rect x="-106" y="-153" width="212" height="306" rx="20" fill="none" stroke="url(#gold)" stroke-width="3"/>
+    <g fill="#e0405a"><use href="#heart" transform="translate(0 14) scale(1.9)"/><use href="#heart" transform="translate(-84 -88) scale(.34)"/></g>
+    <path d="M-100 -108 L-84 -148 L-68 -108 M-94 -124 H-74" stroke="#e0405a" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <!-- wizard hat -->
+  <g>
+    <ellipse cx="512" cy="446" rx="196" ry="42" fill="#000" opacity=".3" transform="translate(0 10)"/>
+    <path d="M338 440 C400 410 440 300 470 210 C490 150 560 120 640 150 C596 156 580 190 586 232 C596 320 620 400 686 440 C600 470 420 470 338 440 Z" fill="url(#hat)"/>
+    <path d="M340 436 C430 480 600 480 684 436 L694 462 C600 512 424 512 330 462 Z" fill="url(#gold)"/>
+    <rect x="486" y="448" width="52" height="40" rx="8" fill="none" stroke="#7a4a00" stroke-width="7" transform="translate(0 6)"/>
+    <ellipse cx="512" cy="450" rx="205" ry="44" fill="none" stroke="#c9b6ff" stroke-width="3" opacity=".5"/>
+    <use href="#spark" transform="translate(520 330) scale(.95)" fill="url(#gold)"/>
+    <circle cx="640" cy="152" r="17" fill="url(#gold)"/>
+  </g>
+  <!-- sparkles -->
+  <g fill="url(#gold)">
+    <use href="#spark" transform="translate(760 250) scale(.8)"/><use href="#spark" transform="translate(260 300) scale(.55)"/>
+    <use href="#spark" transform="translate(810 820) scale(.5)"/><use href="#spark" transform="translate(230 850) scale(.7)"/>
   </g>
 </svg>
